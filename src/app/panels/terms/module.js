@@ -24,7 +24,7 @@ function (angular, app, _, $, kbn) {
   var module = angular.module('kibana.panels.terms', []);
   app.useModule(module);
 
-  module.controller('terms', function($scope, querySrv, dashboard, filterSrv, fields) {
+  module.controller('terms', function($scope, querySrv, dashboard, filterSrv, fields, $q) {
     $scope.panelMeta = {
       modals : [
         {
@@ -197,10 +197,27 @@ function (angular, app, _, $, kbn) {
       // Populate the inspector panel
       $scope.inspector = angular.toJson(JSON.parse(request.toString()),true);
 
+      // Execute the results query
       results = request.doSearch();
 
-      // Populate scope when we have results
-      results.then(function(results) {
+      // Get the translators if enabled
+      var translators;
+      if(!_.isEmpty($scope.panel.translator_index) && !_.isEmpty($scope.panel.translator_id)) {
+        translators = $scope.ejs.Request()
+          .indices($scope.panel.translator_index)
+          .query($scope.ejs.IdsQuery($scope.panel.translator_id))
+          .doSearch();
+      } else {
+        // If we don't need translators we will provide a pre-resolved promise
+        var emptyTranslatorDeferred = $q.defer();
+        translators = emptyTranslatorDeferred.promise;
+        emptyTranslatorDeferred.resolve({});
+      }
+
+      // Populate scope when we have all results
+      $q.all([results, translators]).then(function(combinedResults) {
+        // Process results as usual
+        results = combinedResults[0];
         $scope.panelMeta.loading = false;
         if($scope.panel.tmode === 'terms') {
           $scope.hits = results.hits.total;
@@ -208,13 +225,21 @@ function (angular, app, _, $, kbn) {
 
         $scope.results = results;
 
+        // Now also process translators
+        translators = combinedResults[1];
+        if(!_.isEmpty(translators) && translators.hits.total > 0) {
+          $scope.translator = translators.hits.hits[0]._source;
+        } else {
+          $scope.translator = {};
+        }
+
         $scope.$emit('render');
       });
     };
 
     $scope.build_search = function(term,negate) {
       if(_.isUndefined(term.meta)) {
-        filterSrv.set({type:'terms',field:$scope.field,value:term.label,
+        filterSrv.set({type:'terms',field:$scope.field,value:term.term,
           mandate:(negate ? 'mustNot':'must')});
       } else if(term.meta === 'missing') {
         filterSrv.set({type:'exists',field:$scope.field,
@@ -272,10 +297,10 @@ function (angular, app, _, $, kbn) {
           _.each(scope.results.facets.terms.terms, function(v) {
             var slice;
             if(scope.panel.tmode === 'terms') {
-              slice = { label : v.term, data : [[k,v.count]], actions: true};
+              slice = { term : v.term, label : v.term, data : [[k,v.count]], actions: true};
             }
             if(scope.panel.tmode === 'terms_stats') {
-              slice = { label : v.term, data : [[k,v[scope.panel.tstat]]], actions: true};
+              slice = { term : v.term, label : v.term, data : [[k,v[scope.panel.tstat]]], actions: true};
             }
             scope.data.push(slice);
             k = k + 1;
@@ -305,6 +330,15 @@ function (angular, app, _, $, kbn) {
             _.without(chartData,_.findWhere(chartData,{meta:'missing'}));
           chartData = scope.panel.other ? chartData :
           _.without(chartData,_.findWhere(chartData,{meta:'other'}));
+
+          // Translate data when a translator is available
+          if(!_.isEmpty(scope.translator)) {
+            _.forEach(chartData, function(data) {
+              if(!_.isEmpty(scope.translator[data.term])) {
+                data.label = scope.translator[data.term];
+              }
+            })
+          }
 
           // Populate element.
           require(['jquery.flot.pie'], function(){

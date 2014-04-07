@@ -68,3 +68,23 @@
       </div>
     </div>
   </div>
+  <div class="editor-row">
+    <div class="section">
+      <h5>Translator Options</h5>
+      <div class="editor-option">
+        <label class="small">
+          Translator Index
+          <i class="icon-question-sign" bs-tooltip="'Lookup a translator document by ID in this index to map terms to display labels'"></i>
+        </label>
+        <input type="text" ng-model="panel.translator_index" ng-change="set_refresh(true)">
+      </div>
+      <div class="editor-option">
+        <label class="small">
+          Translator Id
+          <i class="icon-question-sign" bs-tooltip="'Use this document ID to lookup the translator document'"></i>
+        </label>
+        <input type="text" class="input-small" ng-model="panel.translator_id" ng-change="set_refresh(true)">
+      </div>
+    </div>
+  </div>
+
